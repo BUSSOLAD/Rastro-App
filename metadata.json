@@ -1,0 +1,6 @@
+{
+  "name": "Rastro",
+  "description": "Sistema de rastreamento e telemetria tática em tempo real para coordenação de equipes.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,135 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-sans), system-ui, sans-serif;
+  --font-mono: var(--font-mono), monospace;
+
+  /* Custom Rastro Night Telemetry Colors */
+  --color-primary-container: #00ff41;
+  --color-on-primary-container: #007117;
+  --color-primary: #ebffe2;
+  --color-on-primary: #003907;
+
+  --color-secondary-container: #fd8b00;
+  --color-on-secondary-container: #603100;
+  --color-secondary: #ffb77d;
+  --color-on-secondary: #4d2600;
+
+  --color-tertiary-container: #dfd8ff;
+  --color-on-tertiary-container: #5f42e2;
+  --color-tertiary: #fdf8ff;
+  --color-on-tertiary: #2e009c;
+
+  --color-background: #131313;
+  --color-on-background: #e5e2e1;
+
+  --color-surface: #131313;
+  --color-surface-dim: #131313;
+  --color-surface-bright: #393939;
+  --color-on-surface: #e5e2e1;
+  --color-on-surface-variant: #b9ccb2;
+
+  --color-surface-container-lowest: #0e0e0e;
+  --color-surface-container-low: #1c1b1b;
+  --color-surface-container: #201f1f;
+  --color-surface-container-high: #2a2a2a;
+  --color-surface-container-highest: #353534;
+
+  --color-outline: #84967e;
+  --color-outline-variant: #3b4b37;
+
+  --color-error: #ffb4ab;
+  --color-error-container: #93000a;
+}
+
+/* Custom Base & Background Styles */
+body {
+  background-color: #131313;
+  color: #e5e2e1;
+  background-image: 
+    linear-gradient(rgba(0, 255, 65, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 65, 0.02) 1px, transparent 1px);
+  background-size: 40px 40px;
+  background-position: center top;
+}
+
+/* Radar Animations */
+.radar-sweep {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 200%;
+  height: 200%;
+  background: conic-gradient(from 0deg at 50% 50%, rgba(0, 255, 65, 0) 0%, rgba(0, 255, 65, 0.15) 25%, rgba(0, 255, 65, 0) 50%);
+  transform-origin: center;
+  animation: sweep 6s linear infinite;
+  border-radius: 50%;
+  pointer-events: none;
+  translate: -50% -50%;
+}
+
+@keyframes sweep {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.ping {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background-color: #00ff41;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 10px #00ff41;
+  opacity: 0;
+}
+
+@keyframes ping-fade {
+  0% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(2.5); }
+}
+
+/* Glassmorphism Panels */
+.glass-panel {
+  background-color: rgba(20, 20, 20, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pip-glow {
+  box-shadow: 0 0 12px #00ff41;
+}
+
+.pulse-green {
+  animation: pulse-green-glow 2.5s infinite;
+}
+
+@keyframes pulse-green-glow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 255, 65, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(0, 255, 65, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 255, 65, 0);
+  }
+}
+
+/* Custom Telemetry Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(19, 19, 19, 0.5);
+}
+::-webkit-scrollbar-thumb {
+  background: #3b4b37;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #84967e;
+}
