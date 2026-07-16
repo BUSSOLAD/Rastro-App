@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import os from 'os';
 
 export interface Teammate {
   id: string;
@@ -35,7 +36,7 @@ export interface Squad {
   logs: LogEntry[];
 }
 
-const DB_FILE_PATH = path.join(process.cwd(), 'squads_db.json');
+const DB_FILE_PATH = path.join(os.tmpdir(), 'squads_db.json');
 
 const MAP_BOUNDS = {
   latMax: -23.52,

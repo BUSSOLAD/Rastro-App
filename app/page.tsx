@@ -895,6 +895,7 @@ export default function RastroApp() {
   // ============================================================================
   const [screen, setScreen] = useState<'onboarding' | 'squad-setup' | 'map' | 'settings'>('onboarding');
   const [locationGranted, setLocationGranted] = useState(false);
+  const [showLocationHelpModal, setShowLocationHelpModal] = useState(false);
   const [notificationsGranted, setNotificationsGranted] = useState(false);
   const [callsign, setCallsign] = useState('OPERADOR');
   const [markerColor, setMarkerColor] = useState(() => {
@@ -1101,7 +1102,12 @@ export default function RastroApp() {
                   console.warn("GPS precision on restore failed:", error);
                   setLocationGranted(true);
                   setScreen('map');
-                  triggerNotification(`Sessão restaurada. Sinal GPS fraco, usando simulador.`, 'alert');
+                  if (error.code === 1) {
+                    triggerNotification('Permissão de localização negada.', 'alert');
+                    setShowLocationHelpModal(true);
+                  } else {
+                    triggerNotification(`Sessão restaurada. Sinal GPS fraco, usando simulador.`, 'alert');
+                  }
                   setIsLoadingSquad(false);
                 },
                 { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
@@ -1392,6 +1398,7 @@ export default function RastroApp() {
             if (error.code === 1) { // PERMISSION_DENIED
               triggerNotification('Permissão de localização negada.', 'alert');
               setUseGPSReal(false);
+              setShowLocationHelpModal(true);
             } else {
               console.log('GPS temporarily unavailable, retrying...');
             }
@@ -1428,7 +1435,12 @@ export default function RastroApp() {
         (error) => {
           console.warn(error);
           setLocationGranted(true); // Allow continuing in mockup/simulated mode
-          triggerNotification('Usando localização simulada de São Paulo.', 'info');
+          if (error.code === 1) {
+            triggerNotification('Permissão de localização negada.', 'alert');
+            setShowLocationHelpModal(true);
+          } else {
+            triggerNotification('Usando localização simulada de São Paulo.', 'info');
+          }
         },
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       );
@@ -1498,7 +1510,12 @@ export default function RastroApp() {
             console.warn("Test mode GPS retrieval failed:", error);
             setIsObtainingGPS(false);
             setShowTrail(true);
-            triggerNotification('GPS indisponível para simulação inicial, usando São Paulo.', 'alert');
+            if (error.code === 1) {
+              triggerNotification('Permissão de localização negada.', 'alert');
+              setShowLocationHelpModal(true);
+            } else {
+              triggerNotification('GPS indisponível para simulação inicial, usando São Paulo.', 'alert');
+            }
             finalizeStart(-23.5505, -46.6333);
           },
           { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
@@ -1667,6 +1684,7 @@ export default function RastroApp() {
           setLocationGranted(true); // Proceed with fallback
           if (error.code === 1) {
             triggerNotification('Permissão de localização negada. Usando simulador de São Paulo.', 'alert');
+            setShowLocationHelpModal(true);
           } else {
             triggerNotification('Sinal GPS fraco ou esgotado. Usando modo simulado.', 'alert');
           }
@@ -2952,6 +2970,96 @@ export default function RastroApp() {
           </main>
          </motion.div>
        )}
+
+      {/* Location Help Modal / Assistant */}
+      <AnimatePresence>
+        {showLocationHelpModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/85 backdrop-blur-md z-[200] flex items-center justify-center p-4 overflow-y-auto"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              className="bg-[#121212] border border-[#00e639]/30 rounded-2xl p-6 md:p-8 max-w-lg w-full shadow-[0_0_50px_rgba(0,255,65,0.2)] relative overflow-hidden"
+            >
+              <div className="relative z-10 flex flex-col gap-5">
+                {/* Header */}
+                <div className="flex items-center gap-3 border-b border-outline-variant/20 pb-4">
+                  <div className="bg-error/10 p-2.5 rounded-lg border border-error/30 text-error animate-pulse">
+                    <AlertTriangle className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="font-sans font-extrabold text-lg text-on-surface uppercase tracking-wider">
+                      Localização Requerida
+                    </h2>
+                    <span className="font-mono text-[10px] text-outline uppercase font-black">Código de Erro: PERMISSION_DENIED</span>
+                  </div>
+                </div>
+
+                {/* Subtext */}
+                <p className="font-sans text-sm text-on-surface-variant leading-relaxed">
+                  O <strong>Rastro</strong> necessita de acesso ao GPS do seu smartphone para transmitir sua telemetria ao esquadrão em tempo real. Como o acesso foi recusado anteriormente pelo navegador, você precisa liberá-lo manualmente.
+                </p>
+
+                {/* Guide Sections */}
+                <div className="flex flex-col gap-4 my-2">
+                  {/* Android Guide */}
+                  <div className="bg-surface-container-low/80 border border-outline-variant/30 rounded-xl p-4 flex flex-col gap-2">
+                    <div className="flex items-center gap-2 border-b border-outline-variant/10 pb-2">
+                      <span className="w-2 h-2 rounded-full bg-primary-container"></span>
+                      <h4 className="font-mono text-xs font-bold text-on-surface uppercase">No Android (Google Chrome)</h4>
+                    </div>
+                    <ol className="font-mono text-[11px] text-on-surface-variant list-decimal list-inside space-y-1.5 leading-normal">
+                      <li>Toque no ícone de <strong className="text-on-surface">cadeado</strong> ou <strong className="text-on-surface">configurações</strong> à esquerda do endereço do site.</li>
+                      <li>Toque em <strong className="text-on-surface">Permissões</strong>.</li>
+                      <li>Ative a opção de <strong className="text-on-surface">Localização</strong> (mude para &apos;Permitir&apos;).</li>
+                      <li>Recarregue a página do aplicativo.</li>
+                    </ol>
+                  </div>
+
+                  {/* iOS Guide */}
+                  <div className="bg-surface-container-low/80 border border-outline-variant/30 rounded-xl p-4 flex flex-col gap-2">
+                    <div className="flex items-center gap-2 border-b border-outline-variant/10 pb-2">
+                      <span className="w-2 h-2 rounded-full bg-primary-container"></span>
+                      <h4 className="font-mono text-xs font-bold text-on-surface uppercase">No iPhone/iOS (Safari)</h4>
+                    </div>
+                    <ol className="font-mono text-[11px] text-on-surface-variant list-decimal list-inside space-y-1.5 leading-normal">
+                      <li>Toque no ícone <strong className="text-on-surface">&apos;aA&apos;</strong> na barra de endereços (lado esquerdo).</li>
+                      <li>Selecione <strong className="text-on-surface">Ajustes do Site</strong>.</li>
+                      <li>Em <strong className="text-on-surface">Localização</strong>, selecione <strong className="text-on-surface">Permitir</strong>.</li>
+                      <li>Se não funcionar, vá nos <strong className="text-on-surface">Ajustes do iPhone</strong> ➔ <strong className="text-on-surface">Privacidade</strong> ➔ <strong className="text-on-surface">Serviços de Localização</strong> e certifique-se de que o Safari tem acesso ao usar.</li>
+                    </ol>
+                  </div>
+                </div>
+
+                {/* Footer buttons */}
+                <div className="flex flex-col sm:flex-row gap-2 mt-2">
+                  <button
+                    onClick={() => {
+                      setShowLocationHelpModal(false);
+                      requestLocationPermission();
+                    }}
+                    className="flex-1 bg-[#00e639] text-on-primary-container font-mono text-xs uppercase tracking-wider font-extrabold py-3.5 px-4 rounded-xl shadow-[0_0_20px_rgba(0,255,65,0.2)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 hover:bg-[#00ff41]"
+                  >
+                    <RotateCw className="w-4 h-4 animate-spin-slow" />
+                    Tentar Novamente
+                  </button>
+                  <button
+                    onClick={() => setShowLocationHelpModal(false)}
+                    className="flex-1 bg-surface-container-high hover:bg-surface-bright/20 border border-outline-variant/50 text-on-surface-variant hover:text-on-surface font-mono text-xs uppercase tracking-wider font-bold py-3.5 px-4 rounded-xl active:scale-[0.98] transition-all"
+                  >
+                    Continuar em Simulado
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
  
      </div>
     
