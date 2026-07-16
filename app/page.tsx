@@ -1231,7 +1231,7 @@ export default function RastroApp() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
   const handleMapClick = async (targetLat: number, targetLng: number) => {
-    if (!isTestMode) return;
+    if (!isTestMode && useGPSReal) return;
 
     if (animationIntervalRef.current) {
       clearInterval(animationIntervalRef.current);
@@ -2394,73 +2394,125 @@ export default function RastroApp() {
             </div>
           </header>
 
-          {isTestMode && (
+          {(isTestMode || !useGPSReal) && (
             isTestPanelMinimized ? (
               <button
                 onClick={() => setIsTestPanelMinimized(false)}
-                className="fixed top-20 left-1/2 -translate-x-1/2 rounded-full bg-surface/95 backdrop-blur-xl border border-[#00ff41]/30 shadow-lg px-3 py-1.5 flex items-center gap-2 z-40 transition-all font-mono text-[9px] text-[#00ff41] font-bold uppercase active:scale-95 cursor-pointer pointer-events-auto"
-                title="Expandir painel de teste"
+                className="fixed top-20 left-1/2 -translate-x-1/2 rounded-full bg-surface/95 backdrop-blur-xl border border-[#00ff41]/30 shadow-lg px-3 py-1.5 flex items-center gap-2 z-40 transition-all font-mono text-[9px] text-[#00ff41] font-bold uppercase active:scale-95 cursor-pointer pointer-events-auto shadow-[0_0_15px_rgba(0,255,65,0.2)]"
+                title="Expandir painel de controle"
               >
                 <Compass className="w-3.5 h-3.5 animate-spin-slow shrink-0 text-[#00ff41]" />
-                <span>Modo de Teste</span>
+                <span>{isTestMode ? "Modo de Teste" : "GPS Virtual Ativo"}</span>
                 <ChevronDown className="w-3.5 h-3.5" />
               </button>
             ) : (
-              <div className="fixed top-20 left-1/2 -translate-x-1/2 rounded-xl bg-surface/90 backdrop-blur-xl border border-outline-variant/30 shadow-lg px-4 py-3 flex flex-col sm:flex-row items-center gap-3 z-40 max-w-md w-[calc(100%-32px)]">
+              <div className="fixed top-20 left-1/2 -translate-x-1/2 rounded-xl bg-surface/90 backdrop-blur-xl border border-outline-variant/30 shadow-lg px-4 py-3 flex flex-col items-center gap-3 z-40 max-w-md w-[calc(100%-32px)]">
                 <div className="flex items-center gap-2 w-full">
                   <Compass className="w-5 h-5 text-[#00ff41] animate-spin-slow shrink-0" />
-                  <div className="text-left w-full">
-                    <p className="font-mono text-[10px] text-[#00ff41] font-bold uppercase leading-none flex items-center justify-between">
-                      <span>MODO DE TESTE</span>
-                      <button
-                        onClick={() => setIsTestPanelMinimized(true)}
-                        className="text-on-surface-variant hover:text-on-surface p-1 rounded hover:bg-surface-bright/15 transition-colors sm:hidden"
-                        title="Minimizar painel"
-                      >
-                        <ChevronUp className="w-3.5 h-3.5" />
-                      </button>
-                    </p>
-                    <p className="font-sans text-xs text-on-surface-variant mt-0.5 leading-tight">Clique no mapa para simular a rota lentamente.</p>
+                  <div className="text-left w-full flex justify-between items-start">
+                    <div>
+                      <p className="font-mono text-[10px] text-[#00ff41] font-bold uppercase leading-none">
+                        {isTestMode ? "MODO DE TESTE" : "GPS VIRTUAL OPERACIONAL"}
+                      </p>
+                      <p className="font-sans text-xs text-on-surface-variant mt-1 leading-tight">
+                        {isTestMode 
+                          ? "Simulador isolado. Clique no mapa para traçar uma rota."
+                          : "Conectado à equipe! Toque no mapa para se deslocar."}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setIsTestPanelMinimized(true)}
+                      className="text-on-surface-variant hover:text-on-surface p-1 rounded hover:bg-surface-bright/15 transition-colors"
+                      title="Minimizar painel"
+                    >
+                      <ChevronUp className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-between sm:justify-end mt-2 sm:mt-0">
+
+                {/* Vehicle Selector row */}
+                <div className="w-full flex flex-col gap-2 border-t border-outline-variant/20 pt-2">
+                  <label className="font-mono text-[9px] text-outline uppercase font-bold text-left">
+                    Selecione o Meio de Transporte:
+                  </label>
+                  <div className="grid grid-cols-4 gap-1">
+                    {[
+                      { id: 'walking', label: '🚶', text: 'Caminhar' },
+                      { id: 'bike', label: '🚲', text: 'Pedalar' },
+                      { id: 'moto', label: '🏍️', text: 'Moto' },
+                      { id: 'car', label: '🚗', text: 'Carro' },
+                    ].map((v) => (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => {
+                          setTestVehicle(v.id as any);
+                          let speedVal = 40;
+                          if (v.id === 'walking') speedVal = 5;
+                          else if (v.id === 'bike') speedVal = 15;
+                          else if (v.id === 'moto') speedVal = 35;
+                          else if (v.id === 'car') speedVal = 40;
+                          setTestSpeedKmh(speedVal);
+                          triggerNotification(`Velocidade de simulação ajustada.`, 'info');
+                        }}
+                        className={`py-1 px-1.5 rounded border text-center flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer ${
+                          testVehicle === v.id
+                            ? 'bg-primary-container/10 border-[#00ff41] text-[#00ff41]'
+                            : 'bg-surface-container-high border-outline-variant text-on-surface hover:border-outline hover:bg-surface-bright/10'
+                        }`}
+                        title={v.text}
+                      >
+                        <span className="text-sm">{v.label}</span>
+                        <span className="font-mono text-[8px] uppercase tracking-tighter">{v.id}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between w-full border-t border-outline-variant/20 pt-2.5">
                   <span className="font-mono text-[10px] text-[#00ff41] bg-[#00ff41]/10 border border-[#00ff41]/20 px-2 py-0.5 rounded uppercase whitespace-nowrap">
                     {testVehicle === 'walking' && 'Pedestre (5 km/h)'}
                     {testVehicle === 'bike' && 'Bike (15 km/h)'}
                     {testVehicle === 'moto' && 'Moto (35 km/h)'}
                     {testVehicle === 'car' && 'Carro (40 km/h)'}
                   </span>
+                  
                   <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => {
-                        setIsTestMode(false);
-                        setIsConfiguringTestMode(false);
-                        setScreen('squad-setup');
-                        setShowIdentityStep(false);
-                        if (animationIntervalRef.current) {
-                          clearInterval(animationIntervalRef.current);
-                          animationIntervalRef.current = null;
-                        }
-                        setUserCoords({
-                          lat: -23.547,
-                          lng: -46.63,
-                          speed: 0,
-                          heading: 0
-                        });
-                        setUserTrail([]);
-                        triggerNotification('Retornou ao menu de conexões.', 'info');
-                      }}
-                      className="font-mono text-[10px] text-error bg-error/10 hover:bg-error/25 border border-error/20 px-2 py-1 rounded transition-all cursor-pointer font-bold uppercase active:scale-95 whitespace-nowrap"
-                    >
-                      Sair
-                    </button>
-                    <button
-                      onClick={() => setIsTestPanelMinimized(true)}
-                      className="text-on-surface-variant hover:text-on-surface p-1 rounded hover:bg-surface-bright/15 transition-colors hidden sm:block"
-                      title="Minimizar painel"
-                    >
-                      <ChevronUp className="w-4 h-4" />
-                    </button>
+                    {isTestMode ? (
+                      <button
+                        onClick={() => {
+                          setIsTestMode(false);
+                          setIsConfiguringTestMode(false);
+                          setScreen('squad-setup');
+                          setShowIdentityStep(false);
+                          if (animationIntervalRef.current) {
+                            clearInterval(animationIntervalRef.current);
+                            animationIntervalRef.current = null;
+                          }
+                          setUserCoords({
+                            lat: -23.547,
+                            lng: -46.63,
+                            speed: 0,
+                            heading: 0
+                          });
+                          setUserTrail([]);
+                          triggerNotification('Retornou ao menu de conexões.', 'info');
+                        }}
+                        className="font-mono text-[10px] text-error bg-error/10 hover:bg-error/25 border border-error/20 px-2.5 py-1 rounded transition-all cursor-pointer font-bold uppercase active:scale-95 whitespace-nowrap"
+                      >
+                        Sair do Teste
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setUseGPSReal(true);
+                          requestLocationPermission();
+                        }}
+                        className="font-mono text-[10px] text-primary-container bg-primary-container/10 hover:bg-primary-container/20 border border-primary-container/30 px-2.5 py-1 rounded transition-all cursor-pointer font-bold uppercase active:scale-95 whitespace-nowrap animate-pulse"
+                      >
+                        Ativar GPS Real 📡
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -3002,7 +3054,7 @@ export default function RastroApp() {
 
                 {/* Subtext */}
                 <p className="font-sans text-sm text-on-surface-variant leading-relaxed">
-                  O <strong>Rastro</strong> necessita de acesso ao GPS do seu smartphone para transmitir sua telemetria ao esquadrão em tempo real. Como o acesso foi recusado anteriormente pelo navegador, você precisa liberá-lo manualmente.
+                  O <strong>Rastro</strong> precisa de acesso à localização para atualizar sua posição automaticamente. Se o seu dispositivo ou navegador bloqueou o GPS, <strong>não se preocupe! Você ainda pode entrar no esquadrão real</strong> normalmente com sua equipe usando um <strong>GPS Virtual</strong> (você poderá clicar no mapa para simular sua movimentação pelas ruas em tempo real).
                 </p>
 
                 {/* Guide Sections */}
@@ -3010,7 +3062,7 @@ export default function RastroApp() {
                   {/* Android Guide */}
                   <div className="bg-surface-container-low/80 border border-outline-variant/30 rounded-xl p-4 flex flex-col gap-2">
                     <div className="flex items-center gap-2 border-b border-outline-variant/10 pb-2">
-                      <span className="w-2 h-2 rounded-full bg-primary-container"></span>
+                      <span className="w-2 h-2 rounded-full bg-[#00ff41] shadow-[0_0_8px_#00ff41]"></span>
                       <h4 className="font-mono text-xs font-bold text-on-surface uppercase">No Android (Google Chrome)</h4>
                     </div>
                     <ol className="font-mono text-[11px] text-on-surface-variant list-decimal list-inside space-y-1.5 leading-normal">
@@ -3024,7 +3076,7 @@ export default function RastroApp() {
                   {/* iOS Guide */}
                   <div className="bg-surface-container-low/80 border border-outline-variant/30 rounded-xl p-4 flex flex-col gap-2">
                     <div className="flex items-center gap-2 border-b border-outline-variant/10 pb-2">
-                      <span className="w-2 h-2 rounded-full bg-primary-container"></span>
+                      <span className="w-2 h-2 rounded-full bg-[#00ff41] shadow-[0_0_8px_#00ff41]"></span>
                       <h4 className="font-mono text-xs font-bold text-on-surface uppercase">No iPhone/iOS (Safari)</h4>
                     </div>
                     <ol className="font-mono text-[11px] text-on-surface-variant list-decimal list-inside space-y-1.5 leading-normal">
@@ -3046,13 +3098,17 @@ export default function RastroApp() {
                     className="flex-1 bg-[#00e639] text-on-primary-container font-mono text-xs uppercase tracking-wider font-extrabold py-3.5 px-4 rounded-xl shadow-[0_0_20px_rgba(0,255,65,0.2)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 hover:bg-[#00ff41]"
                   >
                     <RotateCw className="w-4 h-4 animate-spin-slow" />
-                    Tentar Novamente
+                    Tentar Novamente (GPS Real)
                   </button>
                   <button
-                    onClick={() => setShowLocationHelpModal(false)}
-                    className="flex-1 bg-surface-container-high hover:bg-surface-bright/20 border border-outline-variant/50 text-on-surface-variant hover:text-on-surface font-mono text-xs uppercase tracking-wider font-bold py-3.5 px-4 rounded-xl active:scale-[0.98] transition-all"
+                    onClick={() => {
+                      setShowLocationHelpModal(false);
+                      setUseGPSReal(false);
+                      triggerNotification('Conectado usando GPS Virtual. Clique no mapa para simular deslocamento!', 'success');
+                    }}
+                    className="flex-1 bg-surface-container-high hover:bg-surface-bright/20 border border-[#00ff41]/50 text-[#00ff41] font-mono text-xs uppercase tracking-wider font-extrabold py-3.5 px-4 rounded-xl active:scale-[0.98] transition-all shadow-[0_0_15px_rgba(0,255,65,0.05)]"
                   >
-                    Continuar em Simulado
+                    Entrar com GPS Virtual
                   </button>
                 </div>
               </div>
