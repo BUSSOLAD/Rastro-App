@@ -896,7 +896,16 @@ export default function RastroApp() {
   const [screen, setScreen] = useState<'onboarding' | 'squad-setup' | 'map' | 'settings'>('onboarding');
   const [locationGranted, setLocationGranted] = useState(false);
   const [showLocationHelpModal, setShowLocationHelpModal] = useState(false);
-  const [helpTab, setHelpTab] = useState<'apk' | 'chrome' | 'safari'>('apk');
+  const [activeHelpTab, setActiveHelpTab] = useState<'apk' | 'android' | 'ios'>(() => {
+    if (typeof window === 'undefined') return 'apk';
+    const ua = navigator.userAgent;
+    const isIOS = /iPad|iPhone|iPod/.test(ua);
+    const isAndroid = /Android/.test(ua);
+    const isWebView = (window as any).Capacitor || (window as any).cordova || /wv/i.test(ua) || (isAndroid && /Version\/[0-9.]+/i.test(ua)) || (isIOS && !/Safari/i.test(ua));
+    if (isWebView) return 'apk';
+    if (isIOS) return 'ios';
+    return 'android';
+  });
   const [notificationsGranted, setNotificationsGranted] = useState(false);
   const [callsign, setCallsign] = useState('OPERADOR');
   const [markerColor, setMarkerColor] = useState(() => {
@@ -1737,6 +1746,28 @@ export default function RastroApp() {
       }
     };
 
+    if (!useGPSReal) {
+      triggerNotification('Sincronizando coordenadas virtuais...', 'info');
+      tryIPFallback(
+        (lat, lng, source) => {
+          setUserCoords(prev => ({ ...prev, lat, lng }));
+          setUserTrail([{ lat, lng }]);
+          setLocationGranted(true);
+          setUseGPSReal(false);
+          
+          if (source === 'ip_fallback') {
+            triggerNotification('Conectado via GPS Virtual (posição aproximada por IP)!', 'info');
+          } else {
+            triggerNotification('Conectado via GPS Virtual (posição padrão).', 'alert');
+          }
+          
+          joinSquadAndEnter(lat, lng);
+        },
+        () => {}
+      );
+      return;
+    }
+
     triggerNotification('Obtendo localização...', 'info');
     getBestLocation(
       (lat, lng, source) => {
@@ -2328,6 +2359,39 @@ export default function RastroApp() {
                           )}
                         </button>
                       ))}
+                    </div>
+                  </div>
+
+                  {/* GPS Mode selection */}
+                  <div className="flex flex-col gap-2">
+                    <label className="font-mono text-[10px] text-outline uppercase font-bold">
+                      Modo de GPS / Posicionamento
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setUseGPSReal(true)}
+                        className={`p-3 rounded-lg border text-left flex flex-col gap-0.5 transition-all cursor-pointer ${
+                          useGPSReal
+                            ? 'bg-primary-container/10 border-[#00ff41] text-[#00ff41]'
+                            : 'bg-surface-container-high border-outline-variant text-on-surface hover:border-outline hover:bg-surface-bright/10'
+                        }`}
+                      >
+                        <span className="font-mono text-xs font-bold uppercase">📡 GPS Real</span>
+                        <span className="font-mono text-[10px] opacity-70">Posição automática do celular</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUseGPSReal(false)}
+                        className={`p-3 rounded-lg border text-left flex flex-col gap-0.5 transition-all cursor-pointer ${
+                          !useGPSReal
+                            ? 'bg-primary-container/10 border-[#00ff41] text-[#00ff41]'
+                            : 'bg-surface-container-high border-outline-variant text-on-surface hover:border-outline hover:bg-surface-bright/10'
+                        }`}
+                      >
+                        <span className="font-mono text-xs font-bold uppercase">📍 GPS Virtual</span>
+                        <span className="font-mono text-[10px] opacity-70">Simular posição clicando no mapa</span>
+                      </button>
                     </div>
                   </div>
 
@@ -3123,69 +3187,65 @@ export default function RastroApp() {
                   O <strong>Rastro</strong> precisa de acesso à localização para atualizar sua posição automaticamente. Se o seu dispositivo ou navegador bloqueou o GPS, <strong>não se preocupe! Você ainda pode entrar no esquadrão real</strong> normalmente com sua equipe usando um <strong>GPS Virtual</strong> (você poderá clicar no mapa para simular sua movimentação pelas ruas em tempo real).
                 </p>
 
-                {/* Guide Tabs */}
-                <div className="flex border-b border-outline-variant/20 gap-1 mt-1 bg-surface-container-low p-1 rounded-xl">
+                {/* Tab Navigation */}
+                <div className="flex bg-surface-container-low border border-outline-variant/20 rounded-xl p-1 gap-1">
                   <button
                     type="button"
-                    onClick={() => setHelpTab('apk')}
-                    className={`flex-1 py-2 rounded-lg font-mono text-[10px] uppercase font-bold text-center transition-all cursor-pointer ${
-                      helpTab === 'apk'
-                        ? 'bg-[#00ff41]/10 text-[#00ff41] border border-[#00ff41]/20 shadow-[0_0_10px_rgba(0,255,65,0.1)]'
-                        : 'text-on-surface-variant hover:text-on-surface border border-transparent'
+                    onClick={() => setActiveHelpTab('apk')}
+                    className={`flex-1 py-2 rounded-lg font-mono text-[10px] sm:text-[11px] font-bold uppercase transition-all ${
+                      activeHelpTab === 'apk'
+                        ? 'bg-[#00ff41] text-[#121212] shadow-sm shadow-[#00ff41]/20'
+                        : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/10'
                     }`}
                   >
-                    No APK / App
+                    No Aplicativo (APK)
                   </button>
                   <button
                     type="button"
-                    onClick={() => setHelpTab('chrome')}
-                    className={`flex-1 py-2 rounded-lg font-mono text-[10px] uppercase font-bold text-center transition-all cursor-pointer ${
-                      helpTab === 'chrome'
-                        ? 'bg-[#00ff41]/10 text-[#00ff41] border border-[#00ff41]/20 shadow-[0_0_10px_rgba(0,255,65,0.1)]'
-                        : 'text-on-surface-variant hover:text-on-surface border border-transparent'
+                    onClick={() => setActiveHelpTab('android')}
+                    className={`flex-1 py-2 rounded-lg font-mono text-[10px] sm:text-[11px] font-bold uppercase transition-all ${
+                      activeHelpTab === 'android'
+                        ? 'bg-[#00ff41] text-[#121212] shadow-sm shadow-[#00ff41]/20'
+                        : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/10'
                     }`}
                   >
-                    No Android (Chrome)
+                    No Chrome (Android)
                   </button>
                   <button
                     type="button"
-                    onClick={() => setHelpTab('safari')}
-                    className={`flex-1 py-2 rounded-lg font-mono text-[10px] uppercase font-bold text-center transition-all cursor-pointer ${
-                      helpTab === 'safari'
-                        ? 'bg-[#00ff41]/10 text-[#00ff41] border border-[#00ff41]/20 shadow-[0_0_10px_rgba(0,255,65,0.1)]'
-                        : 'text-on-surface-variant hover:text-on-surface border border-transparent'
+                    onClick={() => setActiveHelpTab('ios')}
+                    className={`flex-1 py-2 rounded-lg font-mono text-[10px] sm:text-[11px] font-bold uppercase transition-all ${
+                      activeHelpTab === 'ios'
+                        ? 'bg-[#00ff41] text-[#121212] shadow-sm shadow-[#00ff41]/20'
+                        : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/10'
                     }`}
                   >
-                    No iOS (Safari)
+                    No Safari (iPhone)
                   </button>
                 </div>
 
                 {/* Guide Sections */}
                 <div className="flex flex-col gap-4 my-2">
-                  {/* APK Guide */}
-                  {helpTab === 'apk' && (
-                    <div className="bg-surface-container-low/80 border border-[#00ff41]/20 rounded-xl p-4 flex flex-col gap-2.5 animate-fadeIn">
+                  {activeHelpTab === 'apk' && (
+                    <div className="bg-surface-container-low/80 border border-outline-variant/30 rounded-xl p-4 flex flex-col gap-2">
                       <div className="flex items-center gap-2 border-b border-outline-variant/10 pb-2">
                         <span className="w-2 h-2 rounded-full bg-[#00ff41] shadow-[0_0_8px_#00ff41]"></span>
-                        <h4 className="font-mono text-xs font-bold text-on-surface uppercase">Ajustes do Aplicativo Instalado (APK)</h4>
+                        <h4 className="font-mono text-xs font-bold text-on-surface uppercase">No Aplicativo instalado (APK)</h4>
                       </div>
-                      <ol className="font-mono text-[11px] text-on-surface-variant list-decimal list-inside space-y-2 leading-relaxed">
-                        <li>Abra as <strong className="text-on-surface">Configurações do Android</strong> no seu smartphone.</li>
-                        <li>Vá na seção <strong className="text-on-surface">Aplicativos</strong> (ou Apps) e toque no aplicativo do <strong className="text-[#00ff41]">Rastro</strong>.</li>
-                        <li>Selecione <strong className="text-on-surface">Permissões</strong> e clique em <strong className="text-on-surface">Localização</strong>.</li>
-                        <li>Escolha a opção <strong className="text-[#00ff41]">Permitir durante o uso do app</strong> e certifique-se de ativar a opção <strong className="text-on-surface">Usar localização precisa (GPS)</strong>.</li>
-                        <li>Abra o aplicativo novamente. Se o erro persistir, o seu wrapper de APK pode estar bloqueando a WebView de acessar o sensor.</li>
-                        <li className="text-[10px] text-outline pt-2 border-t border-outline-variant/10 leading-normal list-none">
-                          <span className="text-error font-extrabold uppercase block mb-1">Nota para o Desenvolvedor do APK:</span>
-                          Em apps Android nativos/WebView personalizados, para que a WebView funcione com Geolocation, o app precisa de permissões no <code className="text-primary-container font-mono bg-surface-container px-1 rounded text-[10px] break-all">AndroidManifest.xml</code> (<code className="text-primary-container text-[10px] font-mono">ACCESS_FINE_LOCATION</code>) e o código Kotlin/Java do seu app deve implementar o método <code className="text-primary-container font-mono bg-surface-container px-1 rounded text-[10px]">onGeolocationPermissionsShowPrompt</code> do seu <code className="text-primary-container font-mono">WebChromeClient</code>. Sem essa ponte, o Android WebView recusa o GPS por padrão.
-                        </li>
+                      <ol className="font-mono text-[11px] text-on-surface-variant list-decimal list-inside space-y-1.5 leading-normal">
+                        <li>Abra as <strong className="text-on-surface">Configurações</strong> do seu celular Android.</li>
+                        <li>Vá em <strong className="text-on-surface">Aplicativos</strong> ou <strong className="text-on-surface">Apps</strong> e busque por <strong className="text-on-surface">Rastro</strong>.</li>
+                        <li>Toque em <strong className="text-on-surface">Permissões</strong> ➔ <strong className="text-on-surface">Localização</strong>.</li>
+                        <li>Selecione <strong className="text-on-surface">Permitir durante o uso do app</strong> ou <strong className="text-on-surface">Permitir o tempo todo</strong>.</li>
+                        <li>Certifique-se de ativar a opção de <strong className="text-on-surface">Usar localização precisa</strong>.</li>
+                        <li>Reinicie o aplicativo Rastro completamente.</li>
+                        <li>Se o seu aparelho ou APK não tiver suporte nativo a GPS, clique no botão <strong className="text-[#00ff41]">Entrar com GPS Virtual</strong> abaixo para prosseguir e se posicionar livremente clicando no mapa!</li>
                       </ol>
                     </div>
                   )}
 
-                  {/* Android Guide */}
-                  {helpTab === 'chrome' && (
-                    <div className="bg-surface-container-low/80 border border-outline-variant/30 rounded-xl p-4 flex flex-col gap-2 animate-fadeIn">
+                  {activeHelpTab === 'android' && (
+                    <div className="bg-surface-container-low/80 border border-outline-variant/30 rounded-xl p-4 flex flex-col gap-2">
                       <div className="flex items-center gap-2 border-b border-outline-variant/10 pb-2">
                         <span className="w-2 h-2 rounded-full bg-[#00ff41] shadow-[0_0_8px_#00ff41]"></span>
                         <h4 className="font-mono text-xs font-bold text-on-surface uppercase">No Android (Google Chrome)</h4>
@@ -3199,9 +3259,8 @@ export default function RastroApp() {
                     </div>
                   )}
 
-                  {/* iOS Guide */}
-                  {helpTab === 'safari' && (
-                    <div className="bg-surface-container-low/80 border border-outline-variant/30 rounded-xl p-4 flex flex-col gap-2 animate-fadeIn">
+                  {activeHelpTab === 'ios' && (
+                    <div className="bg-surface-container-low/80 border border-outline-variant/30 rounded-xl p-4 flex flex-col gap-2">
                       <div className="flex items-center gap-2 border-b border-outline-variant/10 pb-2">
                         <span className="w-2 h-2 rounded-full bg-[#00ff41] shadow-[0_0_8px_#00ff41]"></span>
                         <h4 className="font-mono text-xs font-bold text-on-surface uppercase">No iPhone/iOS (Safari)</h4>
