@@ -1028,6 +1028,109 @@ export default function RastroApp() {
   }, []);
 
   // ============================================================================
+  // Robust Geolocation Helper (Dual GPS fallback + Dual IP Geolocation fallback)
+  // ============================================================================
+  const tryIPFallback = async (
+    onSuccess: (lat: number, lng: number, source: 'gps_high' | 'gps_low' | 'ip_fallback' | 'default') => void,
+    onFinish?: () => void
+  ) => {
+    try {
+      // Attempt 1: freeipapi.com (No API key, full CORS, accurate and free)
+      const res = await fetch('https://freeipapi.com/api/json');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.latitude && data.longitude) {
+          onSuccess(data.latitude, data.longitude, 'ip_fallback');
+          if (onFinish) onFinish();
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("freeipapi.com fallback failed, trying ipapi.co...", e);
+    }
+
+    try {
+      // Attempt 2: ipapi.co (HTTPS fallback, reliable)
+      const res = await fetch('https://ipapi.co/json/');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.latitude && data.longitude) {
+          onSuccess(data.latitude, data.longitude, 'ip_fallback');
+          if (onFinish) onFinish();
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("ipapi.co fallback failed, defaulting to Sao Paulo", e);
+    }
+
+    // Default ultimate fallback: Sao Paulo Center
+    onSuccess(-23.5505, -46.6333, 'default');
+    if (onFinish) onFinish();
+  };
+
+  const tryLowAccuracy = (
+    onSuccess: (lat: number, lng: number, source: 'gps_high' | 'gps_low' | 'ip_fallback' | 'default') => void,
+    onFinish?: () => void
+  ) => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      tryIPFallback(onSuccess, onFinish);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        if (latitude && longitude) {
+          onSuccess(latitude, longitude, 'gps_low');
+          if (onFinish) onFinish();
+        } else {
+          tryIPFallback(onSuccess, onFinish);
+        }
+      },
+      (err) => {
+        console.warn("Low accuracy GPS failed, trying IP fallback...", err);
+        tryIPFallback(onSuccess, onFinish);
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+    );
+  };
+
+  const getBestLocation = (
+    onSuccess: (lat: number, lng: number, source: 'gps_high' | 'gps_low' | 'ip_fallback' | 'default') => void,
+    onFinish?: () => void
+  ) => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      tryIPFallback(onSuccess, onFinish);
+      return;
+    }
+
+    // Attempt 1: High Accuracy
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        if (latitude && longitude) {
+          onSuccess(latitude, longitude, 'gps_high');
+          if (onFinish) onFinish();
+        } else {
+          tryLowAccuracy(onSuccess, onFinish);
+        }
+      },
+      (err) => {
+        console.warn("High accuracy GPS failed, trying low accuracy...", err);
+        if (err.code === 1) {
+          // Explicit permission denied. Don't retry low accuracy, go straight to IP fallback
+          tryIPFallback(onSuccess, onFinish);
+        } else {
+          // Timeout or Position Unavailable
+          tryLowAccuracy(onSuccess, onFinish);
+        }
+      },
+      { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }
+    );
+  };
+
+  // ============================================================================
   // Squad URL & localStorage Loader Hook
   // ============================================================================
   useEffect(() => {
@@ -1082,42 +1185,33 @@ export default function RastroApp() {
             // Turn on trail automatically on entry/restoration
             setShowTrail(true);
 
-            // Force precise GPS on restore
-            if (typeof window !== 'undefined' && navigator.geolocation) {
-              triggerNotification('Restaurando sessão. Obtendo localização precisa...', 'info');
-              navigator.geolocation.getCurrentPosition(
-                (position) => {
-                  const { latitude, longitude } = position.coords;
-                  if (latitude && longitude) {
-                    setUserCoords(prev => ({ ...prev, lat: latitude, lng: longitude }));
-                    setUserTrail([{ lat: latitude, lng: longitude }]);
-                  }
-                  setLocationGranted(true);
+            // Force precise GPS on restore with robust fallback
+            triggerNotification('Restaurando sessão. Obtendo localização...', 'info');
+            getBestLocation(
+              (lat, lng, source) => {
+                setUserCoords(prev => ({ ...prev, lat, lng }));
+                setUserTrail([{ lat, lng }]);
+                setLocationGranted(true);
+                
+                if (source === 'gps_high' || source === 'gps_low') {
                   setUseGPSReal(true);
-                  setScreen('map');
                   triggerNotification(`Sessão restaurada no esquadrão ${squadIdUpper}`, 'success');
-                  setIsLoadingSquad(false);
-                },
-                (error) => {
-                  console.warn("GPS precision on restore failed:", error);
-                  setLocationGranted(true);
-                  setScreen('map');
-                  if (error.code === 1) {
-                    triggerNotification('Permissão de localização negada.', 'alert');
-                    setShowLocationHelpModal(true);
+                } else {
+                  setUseGPSReal(false);
+                  if (source === 'ip_fallback') {
+                    triggerNotification(`Sessão restaurada via IP (${squadIdUpper})`, 'success');
                   } else {
-                    triggerNotification(`Sessão restaurada. Sinal GPS fraco, usando simulador.`, 'alert');
+                    triggerNotification(`Sessão restaurada com localização padrão (${squadIdUpper})`, 'success');
                   }
-                  setIsLoadingSquad(false);
-                },
-                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-              );
-            } else {
-              setLocationGranted(true);
-              setScreen('map');
-              triggerNotification(`Sessão restaurada no esquadrão ${squadIdUpper}`, 'success');
-              setIsLoadingSquad(false);
-            }
+                }
+                
+                setScreen('map');
+                setIsLoadingSquad(false);
+              },
+              () => {
+                // Completed callback
+              }
+            );
           } else {
             localStorage.removeItem('rastro_squad_id');
             localStorage.removeItem('rastro_callsign');
@@ -1419,34 +1513,24 @@ export default function RastroApp() {
   // Onboarding Interaction Handlers
   // ============================================================================
   const requestLocationPermission = () => {
-    if (typeof window !== 'undefined' && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setLocationGranted(true);
-          setUseGPSReal(true);
-          const { latitude, longitude } = position.coords;
-          // Only snap user coordinate if it is valid
-          if (latitude && longitude) {
-            setUserCoords(prev => ({ ...prev, lat: latitude, lng: longitude }));
-            setUserTrail([{ lat: latitude, lng: longitude }]);
-          }
-          triggerNotification('Permissão de Localização concedida.', 'success');
-        },
-        (error) => {
-          console.warn(error);
-          setLocationGranted(true); // Allow continuing in mockup/simulated mode
-          if (error.code === 1) {
-            triggerNotification('Permissão de localização negada.', 'alert');
-            setShowLocationHelpModal(true);
-          } else {
-            triggerNotification('Usando localização simulada de São Paulo.', 'info');
-          }
-        },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-      );
-    } else {
+    triggerNotification('Obtendo localização...', 'info');
+    getBestLocation((lat, lng, source) => {
       setLocationGranted(true);
-    }
+      setUserCoords(prev => ({ ...prev, lat, lng }));
+      setUserTrail([{ lat, lng }]);
+      
+      if (source === 'gps_high' || source === 'gps_low') {
+        setUseGPSReal(true);
+        triggerNotification('Permissão de Localização concedida com sucesso.', 'success');
+      } else {
+        setUseGPSReal(false);
+        if (source === 'ip_fallback') {
+          triggerNotification('GPS indisponível. Localização aproximada obtida via IP!', 'info');
+        } else {
+          triggerNotification('Não foi possível obter localização. Usando São Paulo.', 'alert');
+        }
+      }
+    });
   };
 
   const requestNotificationPermission = () => {
@@ -1498,33 +1582,19 @@ export default function RastroApp() {
         setIsObtainingGPS(false);
         setShowTrail(true);
         finalizeStart(userCoords.lat, userCoords.lng);
-      } else if (typeof window !== 'undefined' && navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            const { latitude, longitude } = position.coords;
-            setIsObtainingGPS(false);
-            setShowTrail(true);
-            finalizeStart(latitude, longitude);
-          },
-          (error) => {
-            console.warn("Test mode GPS retrieval failed:", error);
-            setIsObtainingGPS(false);
-            setShowTrail(true);
-            if (error.code === 1) {
-              triggerNotification('Permissão de localização negada.', 'alert');
-              setShowLocationHelpModal(true);
-            } else {
-              triggerNotification('GPS indisponível para simulação inicial, usando São Paulo.', 'alert');
-            }
-            finalizeStart(-23.5505, -46.6333);
-          },
-          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-        );
       } else {
-        setIsObtainingGPS(false);
-        setShowTrail(true);
-        triggerNotification('GPS indisponível no navegador, usando São Paulo.', 'alert');
-        finalizeStart(-23.5505, -46.6333);
+        getBestLocation((lat, lng, source) => {
+          setIsObtainingGPS(false);
+          setShowTrail(true);
+          if (source === 'gps_high' || source === 'gps_low') {
+            triggerNotification('Localização obtida via GPS.', 'success');
+          } else if (source === 'ip_fallback') {
+            triggerNotification('GPS indisponível. Localização aproximada obtida via IP.', 'info');
+          } else {
+            triggerNotification('Usando localização padrão de São Paulo.', 'alert');
+          }
+          finalizeStart(lat, lng);
+        });
       }
     } else {
       let startLat = -23.5505;
@@ -1666,36 +1736,31 @@ export default function RastroApp() {
       }
     };
 
-    if (typeof window !== 'undefined' && navigator.geolocation) {
-      triggerNotification('Obtendo localização GPS precisa...', 'info');
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          if (latitude && longitude) {
-            setUserCoords(prev => ({ ...prev, lat: latitude, lng: longitude }));
-            setUserTrail([{ lat: latitude, lng: longitude }]);
-          }
-          setLocationGranted(true);
+    triggerNotification('Obtendo localização...', 'info');
+    getBestLocation(
+      (lat, lng, source) => {
+        setUserCoords(prev => ({ ...prev, lat, lng }));
+        setUserTrail([{ lat, lng }]);
+        setLocationGranted(true);
+        
+        if (source === 'gps_high' || source === 'gps_low') {
           setUseGPSReal(true);
-          joinSquadAndEnter(latitude, longitude);
-        },
-        (error) => {
-          console.warn("GPS precision on join failed:", error);
-          setLocationGranted(true); // Proceed with fallback
-          if (error.code === 1) {
-            triggerNotification('Permissão de localização negada. Usando simulador de São Paulo.', 'alert');
-            setShowLocationHelpModal(true);
+          triggerNotification('Localização real obtida.', 'success');
+        } else {
+          setUseGPSReal(false);
+          if (source === 'ip_fallback') {
+            triggerNotification('GPS indisponível. Localização aproximada por IP ativada!', 'info');
           } else {
-            triggerNotification('Sinal GPS fraco ou esgotado. Usando modo simulado.', 'alert');
+            triggerNotification('GPS indisponível. Iniciando com localização padrão.', 'alert');
           }
-          joinSquadAndEnter();
-        },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-      );
-    } else {
-      setLocationGranted(true);
-      joinSquadAndEnter();
-    }
+        }
+        
+        joinSquadAndEnter(lat, lng);
+      },
+      () => {
+        // completed
+      }
+    );
   };
 
   // ============================================================================
