@@ -962,7 +962,19 @@ export default function RastroApp() {
   });
 
   const [userTrail, setUserTrail] = useState<{ lat: number; lng: number }[]>([]);
-  const [showTrail, setShowTrail] = useState(true);
+  const [showTrail, setShowTrail] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('rastro_show_trail');
+      return saved !== null ? saved === 'true' : true;
+    }
+    return true;
+  });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('rastro_show_trail', String(showTrail));
+    }
+  }, [showTrail]);
 
   const [useGPSReal, setUseGPSReal] = useState(true);
   const [simulationActive, setSimulationActive] = useState(true);
@@ -1065,21 +1077,55 @@ export default function RastroApp() {
           if (res.ok) {
             setSquadId(squadIdUpper);
             setCallsign(savedCallsign);
-            setScreen('map');
-            triggerNotification(`Sessão restaurada no esquadrão ${squadIdUpper}`, 'success');
+            
+            // Turn on trail automatically on entry/restoration
+            setShowTrail(true);
+
+            // Force precise GPS on restore
+            if (typeof window !== 'undefined' && navigator.geolocation) {
+              triggerNotification('Restaurando sessão. Obtendo localização precisa...', 'info');
+              navigator.geolocation.getCurrentPosition(
+                (position) => {
+                  const { latitude, longitude } = position.coords;
+                  if (latitude && longitude) {
+                    setUserCoords(prev => ({ ...prev, lat: latitude, lng: longitude }));
+                    setUserTrail([{ lat: latitude, lng: longitude }]);
+                  }
+                  setLocationGranted(true);
+                  setUseGPSReal(true);
+                  setScreen('map');
+                  triggerNotification(`Sessão restaurada no esquadrão ${squadIdUpper}`, 'success');
+                  setIsLoadingSquad(false);
+                },
+                (error) => {
+                  console.warn("GPS precision on restore failed:", error);
+                  setLocationGranted(true);
+                  setScreen('map');
+                  triggerNotification(`Sessão restaurada. Sinal GPS fraco, usando simulador.`, 'alert');
+                  setIsLoadingSquad(false);
+                },
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+              );
+            } else {
+              setLocationGranted(true);
+              setScreen('map');
+              triggerNotification(`Sessão restaurada no esquadrão ${squadIdUpper}`, 'success');
+              setIsLoadingSquad(false);
+            }
           } else {
             localStorage.removeItem('rastro_squad_id');
             localStorage.removeItem('rastro_callsign');
             setScreen('onboarding');
             triggerNotification('Seu esquadrão anterior expirou ou não existe mais.', 'alert');
+            setIsLoadingSquad(false);
           }
         } catch (err) {
           console.warn('Sessão offline, carregando simulador:', err);
           setSquadId(squadIdUpper);
           setCallsign(savedCallsign);
+          setShowTrail(true);
           setScreen('map');
           triggerNotification('Offline: Sincronizando localmente.', 'alert');
-        } finally {
           setIsLoadingSquad(false);
         }
       };
@@ -1350,7 +1396,7 @@ export default function RastroApp() {
               console.log('GPS temporarily unavailable, retrying...');
             }
           },
-          { enableHighAccuracy: true }
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
         );
         return () => navigator.geolocation.clearWatch(watchId);
       }
@@ -1375,6 +1421,7 @@ export default function RastroApp() {
           // Only snap user coordinate if it is valid
           if (latitude && longitude) {
             setUserCoords(prev => ({ ...prev, lat: latitude, lng: longitude }));
+            setUserTrail([{ lat: latitude, lng: longitude }]);
           }
           triggerNotification('Permissão de Localização concedida.', 'success');
         },
@@ -1382,7 +1429,8 @@ export default function RastroApp() {
           console.warn(error);
           setLocationGranted(true); // Allow continuing in mockup/simulated mode
           triggerNotification('Usando localização simulada de São Paulo.', 'info');
-        }
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       );
     } else {
       setLocationGranted(true);
@@ -1421,6 +1469,7 @@ export default function RastroApp() {
         heading: 0
       });
       setUserTrail([{ lat, lng }]);
+      setShowTrail(true);
       setSquadId('TEST_MODE');
       setIsTestMode(true);
       setScreen('map');
@@ -1435,24 +1484,28 @@ export default function RastroApp() {
       
       if (hasRealCoords) {
         setIsObtainingGPS(false);
+        setShowTrail(true);
         finalizeStart(userCoords.lat, userCoords.lng);
       } else if (typeof window !== 'undefined' && navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (position) => {
             const { latitude, longitude } = position.coords;
             setIsObtainingGPS(false);
+            setShowTrail(true);
             finalizeStart(latitude, longitude);
           },
           (error) => {
             console.warn("Test mode GPS retrieval failed:", error);
             setIsObtainingGPS(false);
+            setShowTrail(true);
             triggerNotification('GPS indisponível para simulação inicial, usando São Paulo.', 'alert');
             finalizeStart(-23.5505, -46.6333);
           },
-          { enableHighAccuracy: false, timeout: 10000 }
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
         );
       } else {
         setIsObtainingGPS(false);
+        setShowTrail(true);
         triggerNotification('GPS indisponível no navegador, usando São Paulo.', 'alert');
         finalizeStart(-23.5505, -46.6333);
       }
@@ -1560,33 +1613,70 @@ export default function RastroApp() {
     }
 
     setIsLoadingSquad(true);
-    try {
-      const valRes = await fetch(`/api/squad/${squadId}/join`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: callsign }),
-      });
 
-      if (!valRes.ok) {
-        const errData = await valRes.json();
-        setSquadError(errData.error || 'Este nome já está ativo no esquadrão.');
-        triggerNotification(errData.error || 'Nome já em uso no esquadrão.', 'alert');
-        return;
+    const joinSquadAndEnter = async (lat?: number, lng?: number) => {
+      try {
+        const valRes = await fetch(`/api/squad/${squadId}/join`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: callsign }),
+        });
+
+        if (!valRes.ok) {
+          const errData = await valRes.json();
+          setSquadError(errData.error || 'Este nome já está ativo no esquadrão.');
+          triggerNotification(errData.error || 'Nome já em uso no esquadrão.', 'alert');
+          setIsLoadingSquad(false);
+          return;
+        }
+
+        localStorage.setItem('rastro_squad_id', squadId);
+        localStorage.setItem('rastro_callsign', callsign);
+        localStorage.setItem('rastro_marker_color', markerColor);
+
+        // Turn on the trail automatically
+        setShowTrail(true);
+
+        triggerNotification('Acesso concedido. Sincronizando com a equipe...', 'success');
+        setTimeout(() => {
+          setScreen('map');
+          setIsLoadingSquad(false);
+        }, 1000);
+      } catch (err) {
+        console.warn(err);
+        triggerNotification('Erro ao conectar ao canal de esquadrão.', 'alert');
+        setIsLoadingSquad(false);
       }
+    };
 
-      localStorage.setItem('rastro_squad_id', squadId);
-      localStorage.setItem('rastro_callsign', callsign);
-      localStorage.setItem('rastro_marker_color', markerColor);
-
-      triggerNotification('Acesso concedido. Sincronizando com a equipe...', 'success');
-      setTimeout(() => {
-        setScreen('map');
-      }, 1000);
-    } catch (err) {
-      console.warn(err);
-      triggerNotification('Erro ao conectar ao canal de esquadrão.', 'alert');
-    } finally {
-      setIsLoadingSquad(false);
+    if (typeof window !== 'undefined' && navigator.geolocation) {
+      triggerNotification('Obtendo localização GPS precisa...', 'info');
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          if (latitude && longitude) {
+            setUserCoords(prev => ({ ...prev, lat: latitude, lng: longitude }));
+            setUserTrail([{ lat: latitude, lng: longitude }]);
+          }
+          setLocationGranted(true);
+          setUseGPSReal(true);
+          joinSquadAndEnter(latitude, longitude);
+        },
+        (error) => {
+          console.warn("GPS precision on join failed:", error);
+          setLocationGranted(true); // Proceed with fallback
+          if (error.code === 1) {
+            triggerNotification('Permissão de localização negada. Usando simulador de São Paulo.', 'alert');
+          } else {
+            triggerNotification('Sinal GPS fraco ou esgotado. Usando modo simulado.', 'alert');
+          }
+          joinSquadAndEnter();
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    } else {
+      setLocationGranted(true);
+      joinSquadAndEnter();
     }
   };
 
@@ -2374,6 +2464,21 @@ export default function RastroApp() {
               <Compass className="w-5 h-5" />
             </button>
             <div className="w-6 h-[1px] bg-outline-variant/40 mx-auto"></div>
+            
+            {/* Tactical Trail Toggle */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowTrail(!showTrail);
+                triggerNotification(!showTrail ? 'Exibição do traçado ativada.' : 'Exibição do traçado desativada.', 'info');
+              }}
+              title={showTrail ? "Ocultar Traçado" : "Exibir Traçado"}
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${showTrail ? 'bg-primary-container text-on-primary-container' : 'text-on-surface hover:text-primary-container hover:bg-surface-bright/20'}`}
+            >
+              <History className="w-5 h-5" />
+            </button>
+            <div className="w-6 h-[1px] bg-outline-variant/40 mx-auto"></div>
+
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -2782,6 +2887,26 @@ export default function RastroApp() {
                   </select>
                   <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-outline pointer-events-none" />
                 </div>
+              </div>
+
+              {/* Show Trail toggle */}
+              <div className="flex items-center justify-between border-b border-outline-variant/10 pb-4 pt-2">
+                <div>
+                  <label className="font-sans text-sm text-on-surface font-semibold block" htmlFor="show-trail-toggle">
+                    Exibir Traçado Tático
+                  </label>
+                  <span className="font-mono text-[10px] text-outline">Desenhar histórico de movimento no mapa operacional</span>
+                </div>
+                <button
+                  id="show-trail-toggle"
+                  onClick={() => {
+                    setShowTrail(!showTrail);
+                    triggerNotification(!showTrail ? 'Exibição do traçado ativada.' : 'Exibição do traçado desativada.', 'info');
+                  }}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${showTrail ? 'bg-primary-container' : 'bg-surface-container-high'}`}
+                >
+                  <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-surface shadow ring-0 transition duration-200 ease-in-out ${showTrail ? 'translate-x-5' : 'translate-x-0'}`}></span>
+                </button>
               </div>
 
               {/* Silent mode toggle */}
